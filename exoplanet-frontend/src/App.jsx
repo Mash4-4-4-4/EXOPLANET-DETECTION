@@ -1,92 +1,162 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from "react";
+import Header from "./components/Header";
+import UploadPanel from "./components/UploadPanel";
+import RadarScanner from "./components/RadarScanner";
+import ConfirmedList from "./components/ConfirmedList";
+import PlanetDetails from "./components/PlanetDetails";
+import { predictCsv } from "./lib/api";
 
-function App() {
-  const [file, setFile] = useState(null)
-  const [results, setResults] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+export default function App() {
+  const [file, setFile] = useState(null);
+  const [rowCount, setRowCount] = useState(0);
+  const [results, setResults] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0])
-    setResults(null)
-    setError(null)
-  }
+  const confirmed = useMemo(
+    () => (results || []).filter((r) => r.prediction === "CONFIRMED").length,
+    [results]
+  );
 
-  const handleUpload = async () => {
-    if (!file) {
-      setError("Please select a CSV file first.")
-      return
+  useEffect(() => {
+    if (!scanning || !results) return;
+
+    let cursor = 0;
+    const total = results.length;
+    const timer = setInterval(() => {
+      cursor += Math.max(1, Math.ceil(total / 90));
+      if (cursor >= total) {
+        cursor = total;
+        clearInterval(timer);
+        setScanning(false);
+      }
+      setVisibleCount(cursor);
+      setProgress((cursor / total) * 100);
+    }, 45);
+
+    return () => clearInterval(timer);
+  }, [scanning, results]);
+
+  const handleFile = async (nextFile) => {
+    if (!nextFile.name.toLowerCase().endsWith(".csv")) {
+      setError("Please choose a CSV file.");
+      return;
     }
 
-    setLoading(true)
-    setError(null)
-
-    const formData = new FormData()
-    formData.append("file", file)
+    setFile(nextFile);
+    setResults(null);
+    setVisibleCount(0);
+    setSelected(null);
+    setProgress(0);
+    setError("");
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/predict", {
-        method: "POST",
-        body: formData,
-      })
+      const text = await nextFile.text();
+      const lines = text
+        .split(/\r?\n/)
+        .filter((line) => line.trim() && !line.trim().startsWith("#"));
+      setRowCount(Math.max(0, lines.length - 1));
+    } catch {
+      setRowCount(0);
+      setError("Could not read this CSV.");
+    }
+  };
 
-      if (!response.ok) {
-        throw new Error("Server error. Ensure the CSV format is correct.")
+  const startDetection = async () => {
+    if (!file) return;
+
+    setError("");
+    setScanning(true);
+    setProgress(2);
+    setVisibleCount(0);
+    setSelected(null);
+
+    try {
+      const payload = await predictCsv(file);
+      const predictions = payload.predictions || [];
+
+      if (!predictions.length) {
+        throw new Error("The backend returned no predictions.");
       }
 
-      const data = await response.json()
-      setResults(data.predictions)
+      setResults(predictions);
     } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
+      setScanning(false);
+      setProgress(0);
+      setError(err.message || "Detection failed.");
     }
-  }
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    setRowCount(0);
+    setResults(null);
+    setVisibleCount(0);
+    setSelected(null);
+    setProgress(0);
+    setError("");
+  };
+
+  const selectedItem = results?.find((r) => r.index === selected) || null;
 
   return (
-    <div style={{ fontFamily: 'Arial', padding: '40px', maxWidth: '800px', margin: '0 auto' }}>
-      <h1>Exoplanet Detection Portal</h1>
-      <p>Upload your Kepler observation data to detect exoplanets.</p>
+    <div className="app-shell" id="detect">
+      <Header />
 
-      <div style={{ padding: '20px', border: '2px dashed #ccc', borderRadius: '8px', marginBottom: '20px' }}>
-        <input type="file" accept=".csv" onChange={handleFileChange} />
-        <button 
-          onClick={handleUpload} 
-          disabled={loading}
-          style={{ marginLeft: '10px', padding: '8px 16px', cursor: 'pointer' }}
-        >
-          {loading ? "Analyzing..." : "Run Detection"}
-        </button>
-      </div>
+      <main className="workspace">
+        <UploadPanel
+          file={file}
+          rowCount={rowCount}
+          onFile={handleFile}
+          onClear={clearFile}
+          onStart={startDetection}
+          disabled={scanning}
+        />
 
-      {error && <div style={{ color: 'red', marginBottom: '20px' }}>{error}</div>}
+        <RadarScanner
+          results={results}
+          visibleCount={visibleCount}
+          scanning={scanning}
+          progress={progress}
+        />
 
-      {results && (
-        <div>
-          <h2>Analysis Results</h2>
-          {results.map((item, index) => (
-            <div key={index} style={{ 
-              border: '1px solid #ddd', 
-              padding: '15px', 
-              borderRadius: '8px', 
-              marginBottom: '15px',
-              backgroundColor: item.prediction === 'CONFIRMED' ? '#e6ffe6' : '#fff'
-            }}>
-              <h3>Row {item.row_index} {item.kepid && `| Kepler ID: ${item.kepid}`}</h3>
-              <p><strong>Verdict: </strong> <span style={{ fontSize: '1.2em' }}>{item.prediction}</span></p>
-              
-              <h4>Confidence Scores:</h4>
-              <ul style={{ listStyleType: 'none', padding: 0 }}>
-                <li>CONFIRMED: {item.probabilities["CONFIRMED"]}%</li>
-                <li>CANDIDATE: {item.probabilities["CANDIDATE"]}%</li>
-                <li>FALSE POSITIVE: {item.probabilities["FALSE POSITIVE"]}%</li>
-              </ul>
-            </div>
-          ))}
+        <ConfirmedList
+          results={results}
+          visibleCount={visibleCount}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      </main>
+
+      {error && <div className="error-toast">{error}</div>}
+
+      {results && !scanning && selectedItem && (
+        <div className="details-shell">
+          <PlanetDetails item={selectedItem} />
         </div>
       )}
-    </div>
-  )
-}
 
-export default App
+      {results && !scanning && !selectedItem && confirmed > 0 && (
+        <div className="scan-complete">
+          <span className="complete-dot" />
+          Scan complete · {results.length.toLocaleString()} objects · {confirmed.toLocaleString()} confirmed
+        </div>
+      )}
+
+      <section className="model-strip" id="about">
+        <span>V9 FINAL</span>
+        <span>35 FEATURES</span>
+        <span>84.85% ACCURACY</span>
+        <span>93.52% ROC-AUC</span>
+        <span>FP FLAGS EXCLUDED</span>
+      </section>
+
+      <section className="sr-only" id="docs">
+        Upload a Kepler-like CSV and run the V9 final classification model.
+      </section>
+    </div>
+  );
+}

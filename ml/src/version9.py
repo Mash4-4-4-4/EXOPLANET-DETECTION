@@ -1,3 +1,4 @@
+#without fp flags
 # ============================================================
 # EXOPLANET DETECTION - VERSION 7 FINAL
 #
@@ -155,11 +156,6 @@ raw_features = [
 # ============================================================
 
 fp_flag_candidates = [
-
-    "koi_fpflag_nt",
-    "koi_fpflag_ss",
-    "koi_fpflag_co",
-    "koi_fpflag_ec"
 ]
 
 
@@ -1327,7 +1323,7 @@ model_package = {
     "meta_model": meta_model,
     "features": features,
     "label_encoder": encoder,
-    "version": "V7",
+    "version": "V9",
     "model_families": [
         name for name, _ in model_factories
     ],
@@ -1336,16 +1332,16 @@ model_package = {
 
 joblib.dump(
     model_package,
-    "exo_model_v7.pkl"
+    "exo_model_v9.pkl"
 )
 
 
 
-print("\nComplete V7 model saved as exo_model_v7.pkl")
+print("\nComplete  model saved as exo_model_v9.pkl")
 
 print("\nModel saved as exo_model.pkl")
 
 print("\n==========================================")
-print("VERSION 7 FINAL MODEL COMPLETED")
+print("VERSION  FINAL MODEL COMPLETED")
 print("==========================================")
 
